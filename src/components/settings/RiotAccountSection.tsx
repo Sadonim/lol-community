@@ -25,6 +25,8 @@ type LinkFormData = z.infer<typeof linkSchema>;
 interface RiotAccount {
   gameName: string;
   tagLine: string;
+  summonerLevel: number | null;
+  profileIconId: number | null;
   tier: string | null;
   rank: string | null;
   leaguePoints: number | null;
