@@ -1,0 +1,28 @@
+{
+  "recommendations": [
+    // 필수 - 코드 품질
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "usernamehw.errorlens",
+
+    // TypeScript / Next.js
+    "ms-vscode.vscode-typescript-next",
+    "bradlc.vscode-tailwindcss",
+
+    // Prisma
+    "Prisma.prisma",
+
+    // API 테스트
+    "rangav.vscode-thunder-client",
+    "humao.rest-client",
+
+    // Git
+    "eamodio.gitlens",
+
+    // 편의성
+    "formulahendry.auto-rename-tag",
+    "christian-kohler.path-intellisense",
+    "wix.vscode-import-cost",
+    "PKief.material-icon-theme"
+  ]
+}

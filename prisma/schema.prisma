@@ -1,0 +1,184 @@
+// =============================================
+// LOL Community Forum - Prisma Schema
+// Phase 1: Auth + User 기반
+// Phase 2에서 RiotAccount 활성화 예정
+// Phase 3에서 Board, Post, Comment, Vote 활성화 예정
+// =============================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// =============================================
+// Phase 1: 인증 & 유저
+// =============================================
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  username     String   @unique
+  passwordHash String
+  avatarUrl    String?
+  role         UserRole @default(USER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  riotAccount   RiotAccount?
+  posts         Post[]
+  comments      Comment[]
+  votes         Vote[]
+  notifications Notification[]
+
+  @@index([email])
+  @@index([username])
+}
+
+enum UserRole {
+  USER
+  MODERATOR
+  ADMIN
+}
+
+// =============================================
+// Phase 2: Riot 계정
+// =============================================
+
+model RiotAccount {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  puuid         String   @unique
+  gameName      String
+  tagLine       String
+  summonerId    String?
+  summonerLevel Int?
+  profileIconId Int?
+  tier          String?
+  rank          String?
+  leaguePoints  Int?     @default(0)
+  wins          Int?     @default(0)
+  losses        Int?     @default(0)
+  lastSyncedAt  DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([gameName, tagLine])
+  @@index([tier, rank, leaguePoints])
+}
+
+// =============================================
+// Phase 3: 포럼
+// =============================================
+
+model Board {
+  id          String  @id @default(cuid())
+  slug        String  @unique
+  name        String
+  description String?
+  sortOrder   Int     @default(0)
+  isActive    Boolean @default(true)
+
+  posts Post[]
+}
+
+model Post {
+  id        String   @id @default(cuid())
+  title     String
+  content   String
+  authorId  String
+  boardId   String
+  isPinned  Boolean  @default(false)
+  viewCount Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  author   User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  board    Board     @relation(fields: [boardId], references: [id])
+  comments Comment[]
+  votes    Vote[]
+  tags     PostTag[]
+
+  @@index([boardId, createdAt])
+  @@index([authorId])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  content   String
+  authorId  String
+  postId    String
+  parentId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  author  User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  post    Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  parent  Comment?  @relation("CommentReplies", fields: [parentId], references: [id])
+  replies Comment[] @relation("CommentReplies")
+  votes   Vote[]
+
+  @@index([postId, createdAt])
+}
+
+model Vote {
+  id        String  @id @default(cuid())
+  value     Int
+  userId    String
+  postId    String?
+  commentId String?
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post    Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  comment Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId])
+  @@unique([userId, commentId])
+}
+
+model Tag {
+  id    String    @id @default(cuid())
+  name  String    @unique
+  posts PostTag[]
+}
+
+model PostTag {
+  postId String
+  tagId  String
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([postId, tagId])
+}
+
+// =============================================
+// Phase 4: 알림
+// =============================================
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String?
+  linkUrl   String?
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead, createdAt])
+}
+
+enum NotificationType {
+  COMMENT_REPLY
+  POST_VOTE
+  COMMENT_VOTE
+  SYSTEM
+}
