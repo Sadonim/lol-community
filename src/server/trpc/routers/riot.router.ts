@@ -30,7 +30,7 @@ export const riotRouter = createTRPCRouter({
   link: protectedProcedure
     .input(riotIdSchema)
     .mutation(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id;
+      const userId = ctx.session.user.id!;
 
       const existing = await ctx.prisma.riotAccount.findUnique({
         where: { userId },
