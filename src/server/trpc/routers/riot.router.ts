@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure, publicProcedure } from "../index";
 import { riotIdSchema } from "@/lib/validators/riot.schema";
@@ -32,17 +33,7 @@ export const riotRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id!;
 
-      const existing = await ctx.prisma.riotAccount.findUnique({
-        where: { userId },
-        select: { gameName: true, tagLine: true },
-      });
-      if (existing) {
-        throw new TRPCError({
-          code: "CONFLICT",
-          message: `이미 연동된 계정이 있습니다: ${existing.gameName}#${existing.tagLine}`,
-        });
-      }
-
+      // Riot API 호출은 트랜잭션 외부에서 수행 (외부 I/O는 트랜잭션 안에 두면 안 됨)
       let data;
       try {
         data = await fetchFullSummonerData(input.gameName, input.tagLine);
@@ -50,43 +41,67 @@ export const riotRouter = createTRPCRouter({
         throw toTRPCError(err);
       }
 
-      const puuidConflict = await ctx.prisma.riotAccount.findUnique({
-        where: { puuid: data.puuid },
-        select: { id: true },
-      });
-      if (puuidConflict) {
-        throw new TRPCError({
-          code: "CONFLICT",
-          message: "이 Riot 계정은 이미 다른 사용자와 연동되어 있습니다.",
+      // 트랜잭션으로 중복 연동 레이스 컨디션 방지 (TOCTOU)
+      try {
+        const riotAccount = await ctx.prisma.$transaction(async (tx) => {
+          const existingByUser = await tx.riotAccount.findUnique({
+            where: { userId },
+            select: { gameName: true, tagLine: true },
+          });
+          if (existingByUser) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: `이미 연동된 계정이 있습니다: ${existingByUser.gameName}#${existingByUser.tagLine}`,
+            });
+          }
+
+          const existingByPuuid = await tx.riotAccount.findUnique({
+            where: { puuid: data.puuid },
+            select: { id: true },
+          });
+          if (existingByPuuid) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "이 Riot 계정은 이미 다른 사용자와 연동되어 있습니다.",
+            });
+          }
+
+          return tx.riotAccount.create({
+            data: {
+              userId,
+              puuid: data.puuid,
+              gameName: data.gameName,
+              tagLine: data.tagLine,
+              summonerLevel: data.summonerLevel,
+              profileIconId: data.profileIconId,
+              tier: data.tier,
+              rank: data.rank,
+              leaguePoints: data.leaguePoints,
+              wins: data.wins,
+              losses: data.losses,
+              lastSyncedAt: new Date(),
+            },
+            select: {
+              id: true,
+              gameName: true,
+              tagLine: true,
+              tier: true,
+              rank: true,
+              leaguePoints: true,
+            },
+          });
         });
+
+        return { success: true, riotAccount };
+      } catch (e) {
+        // TRPCError는 그대로 재던짐
+        if (e instanceof TRPCError) throw e;
+        // 유니크 제약 위반 (동시 요청)
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+          throw new TRPCError({ code: "CONFLICT", message: "이미 연동된 Riot 계정이 있습니다." });
+        }
+        throw e;
       }
-
-      const riotAccount = await ctx.prisma.riotAccount.create({
-        data: {
-          userId,
-          puuid: data.puuid,
-          gameName: data.gameName,
-          tagLine: data.tagLine,
-          summonerLevel: data.summonerLevel,
-          profileIconId: data.profileIconId,
-          tier: data.tier,
-          rank: data.rank,
-          leaguePoints: data.leaguePoints,
-          wins: data.wins,
-          losses: data.losses,
-          lastSyncedAt: new Date(),
-        },
-        select: {
-          id: true,
-          gameName: true,
-          tagLine: true,
-          tier: true,
-          rank: true,
-          leaguePoints: true,
-        },
-      });
-
-      return { success: true, riotAccount };
     }),
 
   // 연동 해제
@@ -109,28 +124,51 @@ export const riotRouter = createTRPCRouter({
   sync: protectedProcedure.mutation(async ({ ctx }) => {
     const userId = ctx.session.user.id;
 
-    const existing = await ctx.prisma.riotAccount.findUnique({
-      where: { userId },
-      select: { gameName: true, tagLine: true, lastSyncedAt: true },
-    });
-    if (!existing) {
-      throw new TRPCError({ code: "NOT_FOUND", message: "연동된 Riot 계정이 없습니다." });
-    }
-
     const SYNC_COOLDOWN_MS = 5 * 60 * 1000;
-    const elapsed = Date.now() - existing.lastSyncedAt.getTime();
-    if (elapsed < SYNC_COOLDOWN_MS) {
-      const remainingSec = Math.ceil((SYNC_COOLDOWN_MS - elapsed) / 1000);
-      throw new TRPCError({
-        code: "TOO_MANY_REQUESTS",
-        message: `${remainingSec}초 후에 다시 시도할 수 있습니다.`,
+
+    // 트랜잭션 안에서 쿨타임 확인 + lastSyncedAt 선점 업데이트 (레이스 컨디션 방지)
+    let accountInfo: { gameName: string; tagLine: string };
+    try {
+      accountInfo = await ctx.prisma.$transaction(async (tx) => {
+        const existing = await tx.riotAccount.findUnique({
+          where: { userId },
+          select: { gameName: true, tagLine: true, lastSyncedAt: true },
+        });
+        if (!existing) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "연동된 Riot 계정이 없습니다." });
+        }
+
+        const elapsed = Date.now() - existing.lastSyncedAt.getTime();
+        if (elapsed < SYNC_COOLDOWN_MS) {
+          const remainingSec = Math.ceil((SYNC_COOLDOWN_MS - elapsed) / 1000);
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: `${remainingSec}초 후에 다시 시도할 수 있습니다.`,
+          });
+        }
+
+        // 슬롯 선점: 동시 요청이 들어와도 한 번만 통과
+        await tx.riotAccount.update({
+          where: { userId },
+          data: { lastSyncedAt: new Date() },
+        });
+
+        return { gameName: existing.gameName, tagLine: existing.tagLine };
       });
+    } catch (e) {
+      if (e instanceof TRPCError) throw e;
+      throw e;
     }
 
     let fresh;
     try {
-      fresh = await fetchFullSummonerData(existing.gameName, existing.tagLine);
+      fresh = await fetchFullSummonerData(accountInfo.gameName, accountInfo.tagLine);
     } catch (err) {
+      // 외부 API 실패 시 선점한 lastSyncedAt을 원복 (재시도 허용)
+      await ctx.prisma.riotAccount.update({
+        where: { userId },
+        data: { lastSyncedAt: new Date(Date.now() - SYNC_COOLDOWN_MS) },
+      }).catch(() => {});
       throw toTRPCError(err);
     }
 

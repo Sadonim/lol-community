@@ -43,7 +43,10 @@ export function NotificationBell() {
       markRead.mutate({ id });
     }
     setOpen(false);
-    if (linkUrl) router.push(linkUrl);
+    // 오픈 리다이렉트 방지: 반드시 /로 시작하는 상대 경로만 허용
+    if (linkUrl && linkUrl.startsWith("/")) {
+      router.push(linkUrl);
+    }
   };
 
   return (

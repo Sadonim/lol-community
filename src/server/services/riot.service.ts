@@ -33,11 +33,33 @@ export class RiotApiError extends Error {
 
 // ── Internal fetch helper ─────────────────────────────────────────────────────
 
+const RIOT_FETCH_TIMEOUT_MS = 5000;
+
 async function riotFetch<T>(url: string): Promise<T> {
-  const res = await fetch(url, {
-    headers: { "X-Riot-Token": process.env.RIOT_API_KEY ?? "" },
-    cache: "no-store",
-  });
+  // API 키 미설정 시 무음 실패 방지: 명시적 오류 반환
+  if (!process.env.RIOT_API_KEY) {
+    throw new RiotApiError("FORBIDDEN", "Riot API 키가 설정되지 않았습니다. 관리자에게 문의하세요.");
+  }
+
+  // 타임아웃 적용 (무한 대기 방지)
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), RIOT_FETCH_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: { "X-Riot-Token": process.env.RIOT_API_KEY },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new RiotApiError("API_ERROR", "Riot API 요청 시간이 초과되었습니다.");
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (res.status === 404)
     throw new RiotApiError("NOT_FOUND", "소환사를 찾을 수 없습니다.");
@@ -133,8 +155,11 @@ export async function fetchFullSummonerData(
   tagLine: string,
 ): Promise<FullSummonerData> {
   const account = await fetchRiotAccount(gameName, tagLine);
-  const summoner = await fetchSummonerByPuuid(account.puuid);
-  const entries = await fetchLeagueEntries(account.puuid);
+  // summoner와 entries는 account.puuid만 필요하므로 병렬 호출 (L-10)
+  const [summoner, entries] = await Promise.all([
+    fetchSummonerByPuuid(account.puuid),
+    fetchLeagueEntries(account.puuid),
+  ]);
 
   const soloEntry = entries.find((e) => e.queueType === "RANKED_SOLO_5x5") ?? null;
 

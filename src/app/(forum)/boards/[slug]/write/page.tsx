@@ -18,8 +18,9 @@ export default async function WritePage({ params }: Props) {
     caller.board.getBySlug({ slug }).catch(() => null),
   ]);
 
-  if (!session) redirect(`/login?callbackUrl=/boards/${slug}/write`);
+  // board 존재 여부를 먼저 확인: 유효하지 않은 slug가 callbackUrl에 포함되는 것을 방지
   if (!board) notFound();
+  if (!session) redirect(`/login?callbackUrl=/boards/${board.slug}/write`);
 
   return (
     <main className="container mx-auto px-4 py-8 max-w-3xl">

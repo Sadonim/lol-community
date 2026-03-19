@@ -13,7 +13,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const schema = z.object({
   username: z.string().min(2, "2자 이상").max(20, "20자 이하"),
-  avatarUrl: z.string().url("올바른 URL을 입력해주세요").or(z.literal("")),
+  // 추적 픽셀/SSRF 방지: HTTPS 전용 URL만 허용 (서버측 검증과 동기화)
+  avatarUrl: z
+    .string()
+    .url("올바른 URL을 입력해주세요")
+    .refine((url) => url.startsWith("https://"), { message: "https://로 시작하는 URL만 허용됩니다." })
+    .or(z.literal("")),
 });
 
 type FormData = z.infer<typeof schema>;
