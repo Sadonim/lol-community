@@ -139,26 +139,28 @@ export const postRouter = createTRPCRouter({
       throw new TRPCError({ code: "FORBIDDEN", message: "수정 권한이 없습니다." });
     }
 
-    // 기존 태그 삭제 후 재생성
-    await ctx.prisma.postTag.deleteMany({ where: { postId } });
+    // 기존 태그 삭제 후 재생성 — 트랜잭션으로 원자적 처리
+    return ctx.prisma.$transaction(async (tx) => {
+      await tx.postTag.deleteMany({ where: { postId } });
 
-    return ctx.prisma.post.update({
-      where: { id: postId },
-      data: {
-        title,
-        content,
-        tags: {
-          create: tagNames.map((name) => ({
-            tag: {
-              connectOrCreate: {
-                where: { name },
-                create: { name },
+      return tx.post.update({
+        where: { id: postId },
+        data: {
+          title,
+          content,
+          tags: {
+            create: tagNames.map((name) => ({
+              tag: {
+                connectOrCreate: {
+                  where: { name },
+                  create: { name },
+                },
               },
-            },
-          })),
+            })),
+          },
         },
-      },
-      select: { id: true, board: { select: { slug: true } } },
+        select: { id: true, board: { select: { slug: true } } },
+      });
     });
   }),
 

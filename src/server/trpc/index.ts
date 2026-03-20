@@ -43,14 +43,27 @@ const t = initTRPC.context<Context>().create({
 // 미들웨어
 // =============================================
 
-// 로그인 필수 미들웨어
-const enforceUserIsAuthed = t.middleware(({ ctx, next }) => {
+// 로그인 필수 미들웨어 (DB에서 유저 존재 여부도 확인 → 탈퇴한 유저의 JWT 차단)
+const enforceUserIsAuthed = t.middleware(async ({ ctx, next }) => {
   if (!ctx.session?.user) {
     throw new TRPCError({
       code: "UNAUTHORIZED",
       message: "로그인이 필요합니다.",
     });
   }
+
+  const user = await prisma.user.findUnique({
+    where: { id: ctx.session.user.id },
+    select: { id: true },
+  });
+
+  if (!user) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "존재하지 않는 계정입니다. 다시 로그인해주세요.",
+    });
+  }
+
   return next({
     ctx: {
       session: { ...ctx.session, user: ctx.session.user },

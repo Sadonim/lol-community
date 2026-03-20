@@ -57,7 +57,15 @@ export const userRouter = createTRPCRouter({
     .input(
       z.object({
         username: z.string().min(2).max(20).optional(),
-        avatarUrl: z.string().url().optional().or(z.literal("")),
+        // 추적 픽셀/SSRF 방지: HTTPS 전용 URL만 허용
+        avatarUrl: z
+          .string()
+          .url("올바른 URL을 입력해주세요")
+          .refine((url) => url.startsWith("https://"), {
+            message: "아바타 URL은 https://로 시작해야 합니다.",
+          })
+          .optional()
+          .or(z.literal("")),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -90,7 +98,7 @@ export const userRouter = createTRPCRouter({
     .input(
       z.object({
         currentPassword: z.string().min(1),
-        newPassword: z.string().min(8),
+        newPassword: z.string().min(8).max(100),
       })
     )
     .mutation(async ({ ctx, input }) => {

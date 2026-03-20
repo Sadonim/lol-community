@@ -24,6 +24,10 @@ export function VoteButtons({ targetType, targetId, initialSum, initialMyVote }:
 
   const toggle = trpc.vote.toggle.useMutation({
     onMutate: ({ value }) => {
+      // 롤백을 위해 이전 상태 저장
+      const prevSum = sum;
+      const prevMyVote = myVote;
+
       // Optimistic update
       if (myVote === value) {
         setSum((s) => s - value);
@@ -32,10 +36,16 @@ export function VoteButtons({ targetType, targetId, initialSum, initialMyVote }:
         setSum((s) => s - (myVote ?? 0) + value);
         setMyVote(value);
       }
+
+      return { prevSum, prevMyVote };
     },
-    onError: () => {
+    onError: (_err, _input, context) => {
       toast.error("투표에 실패했습니다.");
-      // 롤백은 서버 상태로 refetch
+      // 이전 상태로 롤백
+      if (context) {
+        setSum(context.prevSum);
+        setMyVote(context.prevMyVote);
+      }
     },
   });
 

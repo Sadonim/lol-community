@@ -12,7 +12,7 @@ interface CommentSectionProps {
 }
 
 export function CommentSection({ postId }: CommentSectionProps) {
-  const { data: comments, isLoading } = trpc.comment.listByPost.useQuery({ postId });
+  const { data: comments, isLoading, isError } = trpc.comment.listByPost.useQuery({ postId });
 
   return (
     <section className="mt-8">
@@ -43,6 +43,8 @@ export function CommentSection({ postId }: CommentSectionProps) {
             </div>
           ))}
         </div>
+      ) : isError ? (
+        <p className="text-center text-destructive py-8">댓글을 불러오는 데 실패했습니다. 페이지를 새로고침해주세요.</p>
       ) : comments && comments.length > 0 ? (
         <div className="divide-y">
           {comments.map((comment) => (

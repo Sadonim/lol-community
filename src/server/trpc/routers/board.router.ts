@@ -15,12 +15,12 @@ export const boardRouter = createTRPCRouter({
     });
   }),
 
-  // slug로 게시판 단건 조회
+  // slug로 게시판 단건 조회 (비활성 게시판은 404 처리)
   getBySlug: publicProcedure
     .input(z.object({ slug: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
       const board = await ctx.prisma.board.findUnique({
-        where: { slug: input.slug },
+        where: { slug: input.slug, isActive: true },
       });
 
       if (!board) {
