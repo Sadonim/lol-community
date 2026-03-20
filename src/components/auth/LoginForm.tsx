@@ -13,9 +13,12 @@ export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const justRegistered = searchParams.get("registered") === "true";
-  // 오픈 리다이렉트 방지: 반드시 /로 시작하는 상대 경로만 허용
+  // 오픈 리다이렉트 방지: /로 시작하되 //로 시작하지 않는 상대 경로만 허용 (protocol-relative URL 차단)
   const rawCallbackUrl = searchParams.get("callbackUrl");
-  const callbackUrl = rawCallbackUrl && rawCallbackUrl.startsWith("/") ? rawCallbackUrl : "/";
+  const callbackUrl =
+    rawCallbackUrl && rawCallbackUrl.startsWith("/") && !rawCallbackUrl.startsWith("//")
+      ? rawCallbackUrl
+      : "/";
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
